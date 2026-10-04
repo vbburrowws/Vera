@@ -39,7 +39,7 @@ nav{position:fixed;bottom:0;left:0;right:0;height:calc(72px + env(safe-area-inse
 <nav id="nav"></nav>
 <script>
 const KEY="vera_iphone_v2";
-const names=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const names=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const defaultMeals=[
 {id:"breakfast",cat:"Breakfast",emoji:"🍞",name:"English muffin breakfast sandwich",kcal:378,p:28,c:31,f:16,ingredients:[["Woolies","English muffins",5],["Woolies","Eggs",10],["Woolies","Lean ham",250]]},
 {id:"bigmac",cat:"Lunch",emoji:"🍔",name:"Big Mac beef bowl",kcal:510,p:42,c:50,f:15,ingredients:[["Woolies","Extra-lean beef mince",900],["Woolies","Lettuce",2],["Woolies","Cucumber",2],["Woolies","Pickles",1],["Woolies","Light mayo",1]]},
@@ -55,14 +55,14 @@ const defaultMeals=[
 {id:"berry",cat:"Dessert",emoji:"🍓",name:"Berry yoghurt bowl",kcal:251,p:31,c:24,f:3,ingredients:[["Woolies","Greek yoghurt",1],["Woolies","Frozen berries",1]]},
 {id:"creami",cat:"Dessert",emoji:"🍦",name:"Strawberry cheesecake CREAMi",kcal:235,p:22,c:25,f:3,ingredients:[["Woolies","High-protein yoghurt",5],["Woolies","Skim milk",1],["Woolies","Frozen strawberries",1]]}];
 const old=JSON.parse(localStorage.getItem("vera_iphone_v1")||"null");
-let S=JSON.parse(localStorage.getItem(KEY)||"null")||{day:old?.day||new Date().getDay()||7,theme:old?.theme||"light",customMeals:[],planned:{},eaten:{},events:[]};
+let S=JSON.parse(localStorage.getItem(KEY)||"null")||{day:old?.day||(new Date().getDay()+1),theme:old?.theme||"light",customMeals:[],planned:{},eaten:{},events:[]};
 S.customMeals=S.customMeals||[];S.planned=S.planned||{};S.eaten=S.eaten||{};S.events=S.events||[];
 const meals=()=>[...defaultMeals,...S.customMeals];
-const fallback=i=>i===6?["banana","breakfast","greek","carrots","stirfry","berry"]:["banana","breakfast","bigmac","carrots","lasagne","berry"];
+const fallback=i=>i===7?["banana","breakfast","greek","carrots","stirfry","berry"]:["banana","breakfast","bigmac","carrots","lasagne","berry"];
 function save(){localStorage.setItem(KEY,JSON.stringify(S))}
 function get(id){return meals().find(m=>m.id===id)}
-function dayDate(i){const d=new Date();const day=d.getDay()||7;d.setHours(12,0,0,0);d.setDate(d.getDate()-day+1+(i-1));return d.toISOString().slice(0,10)}
-function type(i){const date=dayDate(i);const es=S.events.filter(e=>e.date===date);const t=es.map(e=>e.title).join(" ").toLowerCase();if(/fitstop|hyrox|turf|training|gym|coaching|perform|build|peak|sweat|competition|comp/.test(t))return"HARD";if(/leave|holiday|rest|recovery/.test(t))return"EASY";return i===7?"EASY":i===6?"HARD":"NORMAL"}
+function dayDate(i){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+(i-1));return d.toISOString().slice(0,10)}
+function type(i){const date=dayDate(i);const es=S.events.filter(e=>e.date===date);const t=es.map(e=>e.title).join(" ").toLowerCase();if(/fitstop|hyrox|turf|training|gym|coaching|perform|build|peak|sweat|competition|comp/.test(t))return"HARD";if(/leave|holiday|rest|recovery/.test(t))return"EASY";return i===1?"EASY":i===7?"HARD":"NORMAL"}
 function target(i){return type(i)==="HARD"?{k:1950,p:160,c:200,f:55}:type(i)==="EASY"?{k:1800,p:160,c:160,f:55}:{k:1850,p:160,c:175,f:55}}
 function nav(){document.getElementById("nav").innerHTML=[["today","⌂","Today"],["week","▦","Week"],["calendar","📅","Calendar"],["meals","◉","Meals"],["shop","🛒","Shop"],["connect","⚙","Connect"]].map(x=>'<button onclick="show(\''+x[0]+'\')" id="n-'+x[0]+'"><span>'+x[1]+'</span>'+x[2]+'</button>').join("")}
 function days(){document.getElementById("days").innerHTML=names.map((n,i)=>'<button class="day '+(S.day===i+1?"active":"")+'" onclick="S.day='+(i+1)+';save();render()"><b>'+n+'</b><small>'+type(i+1)+'</small></button>').join("")}
