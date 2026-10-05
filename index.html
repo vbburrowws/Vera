@@ -88,8 +88,46 @@ function week(){document.getElementById("week").innerHTML='<div class="hero"><di
 function addRecipeToSelectedDay(id){S.planned[S.day]=[...(S.planned[S.day]||fallback(S.day)),id];save();toast("Added to "+names[new Date(dayDate(S.day)+"T12:00").getDay()]+" ✓");library()}
 function importRecipes(){openModal("Import MacroFactor recipes",'<div class="notice"><b>Best option:</b> upload a recipe file or paste the recipe details. VERA stores ingredients, macros and category so they can be used in meal planning and the shopping list.</div><button class="full" onclick="pickRecipeFile()">📥 Upload recipe file</button><button class="full" onclick="pickRecipeImagesStage1()">📸 Select screenshot(s) / product label(s)</button><button class="full ghost" onclick="pasteRecipe()">📋 Paste recipe details</button><p class="muted">You can now select multiple MacroFactor screenshots at once. This first step only previews the images; OCR will be added separately after this is confirmed stable.</p>')}
 function pickRecipeImagesStage1(){const input=document.createElement("input");input.type="file";input.accept="image/*";input.multiple=true;input.onchange=()=>{const files=Array.from(input.files||[]);if(!files.length)return;const thumbs=files.map((file,i)=>"<div class='recipe'><div class='row'><b>Screenshot "+(i+1)+"</b><span class='pill'>"+esc(file.name)+"</span></div><img src='"+URL.createObjectURL(file)+"' style='width:100%;max-height:240px;object-fit:contain;border-radius:14px;margin-top:8px'></div>").join("");openModal("Screenshot preview","<div class='notice'><b>"+files.length+" image"+(files.length===1?"":"s")+" selected.</b><br>VERA will read them one at a time and then let you review the combined result before saving.</div>"+thumbs+"<button class='full' onclick='runMultiRecipeOCR(window._veraRecipeFiles||[])'>Read selected images</button><button class='full ghost' onclick='closeModal()'>Cancel</button>");window._veraRecipeFiles=files};input.click()}
-async function runMultiRecipeOCR(files){files=Array.from(files||[]);if(!files.length)return;openModal("Reading screenshots","<div class='notice'><b>Step 1 of "+files.length+"</b><br>VERA is reading each screenshot separately. Nothing is saved automatically.</div><p id='ocrMultiStatus' class='muted'>Starting OCR…</p>");let texts=[];try{if(!window.Tesseract)throw new Error("OCR library did not load");for(let i=0;i<files.length;i++){const el=document.getElementById("ocrMultiStatus");if(el)el.textContent="Reading screenshot "+(i+1)+" of "+files.length+"…";const result=await Tesseract.recognize(files[i],"eng",{logger:m=>{const el=document.getElementById("ocrMultiStatus");if(el&&m.status)el.textContent="Screenshot "+(i+1)+" of "+files.length+" — "+m.status+(m.progress?" "+Math.round(m.progress*100)+"%":"")}});texts.push(result.data.text||"")}showOCRReview(texts.join("\n\n"),files.map(f=>f.name).join(" + "));window._veraRecipeFiles=[]}catch(e){console.error(e);openModal("OCR could not finish","<div class='notice'>VERA couldn't read all of the selected screenshots. Your images were not saved. Please try 1–2 screenshots at a time, or use Paste recipe details instead.</div><button class='full ghost' onclick='closeModal()'>Close</button>")}}
-async function pickRecipeImage(){const input=document.createElement("input");input.type="file";input.accept="image/*";input.onchange=async()=>{const file=input.files[0];if(!file)return;openModal("Scanning image","<div class='notice'>VERA is reading the image.</div><p id='ocrStatus' class='muted'>Starting OCR…</p><img id='ocrPreview' style='width:100%;max-height:280px;object-fit:contain;border-radius:14px;margin-top:10px'>");const img=document.getElementById("ocrPreview");img.src=URL.createObjectURL(file);try{if(!window.Tesseract)throw new Error("OCR library did not load");const result=await Tesseract.recognize(file,"eng",{logger:m=>{const el=document.getElementById("ocrStatus");if(el)el.textContent=(m.status||"Reading")+" "+(m.progress?Math.round(m.progress*100)+"%":"")}});showOCRReview(result.data.text||"",file.name)}catch(e){console.error(e);toast("Could not read image automatically")}};input.click()}
+async function preprocessOCRImage(file){
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const maxW=2200,scale=Math.min(2.5,Math.max(1,maxW/img.naturalWidth));
+      const w=Math.round(img.naturalWidth*scale),h=Math.round(img.naturalHeight*scale);
+      const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext("2d",{willReadFrequently:true});
+      ctx.drawImage(img,0,0,w,h);
+      const data=ctx.getImageData(0,0,w,h),p=data.data;
+      for(let i=0;i<p.length;i+=4){
+        const y=0.299*p[i]+0.587*p[i+1]+0.114*p[i+2];
+        const v=Math.max(0,Math.min(255,(y-128)*1.35+128));
+        p[i]=p[i+1]=p[i+2]=v;
+      }
+      ctx.putImageData(data,0,0);resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror=reject;img.src=URL.createObjectURL(file);
+  });
+}
+async function runMultiRecipeOCR(files){
+  files=Array.from(files||[]);if(!files.length)return;
+  openModal("Reading screenshots","<div class='notice'><b>Step 1 of "+files.length+"</b><br>VERA is enhancing and reading each screenshot. Nothing is saved automatically.</div><p id='ocrMultiStatus' class='muted'>Starting OCR…</p>");
+  let texts=[];
+  try{
+    if(!window.Tesseract)throw new Error("OCR library did not load");
+    for(let i=0;i<files.length;i++){
+      const el=document.getElementById("ocrMultiStatus");
+      if(el)el.textContent="Enhancing screenshot "+(i+1)+" of "+files.length+"…";
+      const image=await preprocessOCRImage(files[i]);
+      const result=await Tesseract.recognize(image,"eng",{logger:m=>{
+        const el=document.getElementById("ocrMultiStatus");
+        if(el&&m.status)el.textContent="Screenshot "+(i+1)+" of "+files.length+" — "+m.status+(m.progress?" "+Math.round(m.progress*100)+"%":"")
+      }});
+      texts.push(result.data.text||"");
+    }
+    showOCRReview(texts.join("\\n\\n===== NEXT SCREENSHOT =====\\n\\n"),files.map(f=>f.name).join(" + "));
+    window._veraRecipeFiles=[];
+  }catch(e){console.error(e);openModal("OCR could not finish","<div class='notice'>VERA couldn't read all of the selected screenshots. Try selecting the screenshots again.</div><button class='full ghost' onclick='closeModal()'>Close</button>")}
+}
 function showOCRReview(raw,fileName){
 const text=String(raw||"").replace(/\r/g,"\n");
 const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
