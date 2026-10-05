@@ -86,12 +86,96 @@ function lockNextWeek(){S.weekPlan={};[0,1,2,3,4,5,6].forEach(i=>{const date=nex
 function planMeal(){const opts=meals().map(m=>'<option value="'+m.id+'">'+m.emoji+' '+m.name+' — '+m.kcal+' kcal</option>').join("");openModal("Add planned meal",'<div class="field"><label>Meal<select id="pick">'+opts+'</select></label></div><button onclick="S.planned[S.day]=[...(S.planned[S.day]||fallback(S.day)),document.getElementById(\'pick\').value];save();closeModal();today()">Add to today</button>')}
 function week(){document.getElementById("week").innerHTML='<div class="hero"><div class="eyebrow">14-day planning</div><h2>Today → the next two weeks.</h2><p class="muted">VERA keeps a rolling 14-day calendar. Sync again anytime to update events already in the current window and bring in the days ahead.</p></div>'+Array.from({length:14},(_,j)=>{const i=j+1,d=new Date(dayDate(i)+"T12:00"),label=d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"short"});return '<div class="card row"><div><b>'+label+'</b><div class="muted">'+type(i)+' · '+target(i).k+' kcal</div></div><button class="ghost" onclick="S.day='+i+';save();show(\'today\')">Open</button></div>'}).join("")}
 function addRecipeToSelectedDay(id){S.planned[S.day]=[...(S.planned[S.day]||fallback(S.day)),id];save();toast("Added to "+names[new Date(dayDate(S.day)+"T12:00").getDay()]+" ✓");library()}
-function importRecipes(){openModal("Import MacroFactor recipes",'<div class="notice"><b>Best option:</b> upload a recipe file or paste the recipe details. VERA stores ingredients, macros and category so they can be used in meal planning and the shopping list.</div><button class="full" onclick="pickRecipeFile()">📥 Upload recipe file</button><button class="full" onclick="pickRecipeImage()">📸 Scan a screenshot / product label</button><button class="full ghost" onclick="pasteRecipe()">📋 Paste recipe details</button><p class="muted">MacroFactor custom recipes are shareable through recipe links, while its general data export is spreadsheet-based; there is not a documented dedicated recipe-export format, so VERA supports file/paste import for now.</p>')}
-async function pickRecipeImage(){const input=document.createElement("input");input.type="file";input.accept="image/*";input.onchange=async()=>{const file=input.files[0];if(!file)return;openModal("Import image","<div class='notice'><b>What are you importing?</b><br>Choose the format so VERA can interpret the image correctly.</div><button class='full' onclick='runImageOCR(window.__veraImageFile,&quot;macro&quot;)'>🥗 MacroFactor screenshot</button><button class='full ghost' onclick='runImageOCR(window.__veraImageFile,&quot;label&quot;)'>🏷️ Product / nutrition label</button><img id='ocrPreview' style='width:100%;max-height:260px;object-fit:contain;border-radius:14px;margin-top:12px'></img>");window.__veraImageFile=file;const img=document.getElementById("ocrPreview");if(img)img.src=URL.createObjectURL(file)};input.click()}
-async function cropTop(file){return await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{const c=document.createElement("canvas");c.width=img.width;c.height=Math.floor(img.height*.4);c.getContext("2d").drawImage(img,0,0);c.toBlob(b=>b?resolve(b):reject(new Error("crop failed")),"image/png")};img.onerror=reject;img.src=URL.createObjectURL(file)})}
-async function runImageOCR(file,mode){if(!file)return;openModal("Reading image","<div class='notice'>VERA is reading the full image for nutrition and the top of the image separately for the name.</div><p id='ocrStatus' class='muted'>Reading…</p>");try{if(!window.Tesseract)throw new Error("OCR library did not load");const top=await cropTop(file);const status=m=>{const el=document.getElementById("ocrStatus");if(el)el.textContent=(m.status||"Reading")+" "+(m.progress?Math.round(m.progress*100)+"%":"")};const fullResult=await Tesseract.recognize(file,"eng",{logger:status});const topResult=await Tesseract.recognize(top,"eng",{logger:status});showOCRReview(fullResult.data.text||"",topResult.data.text||"",file.name,mode)}catch(e){console.error(e);openModal("Image import failed","<div class='notice'>VERA couldn't read that image reliably.</div><button class='full' onclick='editMeal()'>Enter item manually</button>")}}
-function extractMacro(text,patterns){for(const p of patterns){const m=String(text).match(p);if(m)return m[1]}return ""}
-function showOCRReview(fullRaw,topRaw,fileName,mode){const lines=String(fullRaw||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);const joined=lines.join(" ");const nameLines=String(topRaw||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);let name=nameLines.find(x=>x.length>2&&!/(calories|energy|protein|carb|fat|serving|nutrition|kcal|kj)/i.test(x))||fileName.replace(/\.[^.]+$/,"");name=name.replace(/\s+/g," ").trim();const kcal=extractMacro(joined,[/(?:energy|calories)[^\d]{0,20}(\d{2,5})\s*(?:kcal)?/i,/([0-9]{2,5})\s*kcal/i]);const p=extractMacro(joined,[/protein[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);const c=extractMacro(joined,[/(?:carbohydrates?|carbs?)[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);const f=extractMacro(joined,[/(?:total\s+)?fat[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);const cat=mode==="label"||/drink|bar|snack|yoghurt|yogurt|chips|cracker|powerade|gatorade|protein/i.test(joined)?"Snacks":"Dinner";const ingredientGuess=mode==="macro"?lines.slice(1).filter(x=>x.length>2).slice(0,12).join("\n"):name;openModal("Review imported item","<div class='notice'><b>OCR result — check it before saving.</b><br>VERA is now separating the name from the nutrition fields. Please verify the numbers.</div><div class='field'><label>Name<input id='ocrName' value='"+esc(name)+"'></label></div><div class='field'><label>Category<select id='ocrCat'>"+["Breakfast","Lunch","Snacks","Dinner","Dessert"].map(x=>"<option "+(x===cat?"selected":"")+">"+x+"</option>").join("")+"</select></label></div><div class='stats'><div class='field'><label>Calories<input id='ocrK' type='number' value='"+kcal+"'></label></div><div class='field'><label>Protein (g)<input id='ocrP' type='number' value='"+p+"'></label></div><div class='field'><label>Carbs (g)<input id='ocrC' type='number' value='"+c+"'></label></div><div class='field'><label>Fat (g)<input id='ocrF' type='number' value='"+f+"'></label></div></div><div class='field'><label>Shopping item / ingredients<textarea id='ocrI' rows='5'>"+esc(ingredientGuess||name)+"</textarea></label></div><details><summary>Show OCR text</summary><pre style='white-space:pre-wrap;font-size:11px;color:var(--muted)'>"+esc(fullRaw)+"</pre></details><button class='full' onclick='saveOCRRecipe()'>Save to VERA</button>")}
+function importRecipes(){openModal("Import MacroFactor recipes",'<div class="notice"><b>Best option:</b> upload a recipe file, paste the recipe details, or select multiple MacroFactor screenshots at once. VERA stores ingredients, macros and category so they can be used in meal planning and the shopping list.</div><button class="full" onclick="pickRecipeFile()">📥 Upload recipe file</button><button class="full" onclick="pickRecipeImage()">📸 Scan screenshot(s) / product label(s)</button><button class="full ghost" onclick="pasteRecipe()">📋 Paste recipe details</button><p class="muted">MacroFactor custom recipes are shareable through recipe links, while its general data export is spreadsheet-based; there is not a documented dedicated recipe-export format, so VERA supports file/paste import for now.</p>')}
+async function pickRecipeImage(){
+  const input=document.createElement("input");
+  input.type="file";
+  input.accept="image/*";
+  input.multiple=true;
+  input.onchange=async()=>{
+    const files=Array.from(input.files||[]);
+    if(!files.length)return;
+    window.__veraImageFiles=files;
+    const previews=files.map((file,i)=>"<div style='display:flex;gap:8px;align-items:center;margin-top:8px'><img src='"+URL.createObjectURL(file)+"' style='width:72px;height:72px;object-fit:cover;border-radius:10px'><span class='muted'>"+(i+1)+". "+esc(file.name)+"</span></div>").join("");
+    openModal("Import image(s)","<div class='notice'><b>What are you importing?</b><br>Choose the format. You can select all screenshots from the same MacroFactor recipe at once — VERA will combine them before extracting the name, macros and ingredients.</div><div class='card'><b>"+files.length+" image"+(files.length===1?"":"s")+" selected</b>"+previews+"</div><button class='full' onclick='runImageOCR(window.__veraImageFiles,"macro")'>🥗 Read MacroFactor screenshot(s)</button><button class='full ghost' onclick='runImageOCR(window.__veraImageFiles,"label")'>🏷️ Read product / nutrition label(s)</button><button class='full ghost' onclick='pickRecipeImage()'>＋ Add / replace images</button>");
+  };
+  input.click();
+}
+async function cropTop(file){
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas");
+      c.width=img.width;
+      c.height=Math.floor(img.height*.4);
+      c.getContext("2d").drawImage(img,0,0);
+      c.toBlob(b=>b?resolve(b):reject(new Error("crop failed")),"image/png");
+    };
+    img.onerror=reject;
+    img.src=URL.createObjectURL(file);
+  });
+}
+async function runImageOCR(files,mode){
+  const list=Array.isArray(files)?files:[files];
+  if(!list.length)return;
+  openModal("Reading image(s)","<div class='notice'>VERA is reading every screenshot, then combining the results. For a MacroFactor recipe, this means you can upload the summary screen and the ingredients screen together.</div><p id='ocrStatus' class='muted'>Starting…</p>");
+  try{
+    if(!window.Tesseract)throw new Error("OCR library did not load");
+    let fullRaw=[],topRaw=[];
+    for(let i=0;i<list.length;i++){
+      const file=list[i];
+      const status=m=>{
+        const el=document.getElementById("ocrStatus");
+        if(el)el.textContent="Image "+(i+1)+" of "+list.length+" · "+(m.status||"Reading")+" "+(m.progress?Math.round(m.progress*100)+"%":"");
+      };
+      const fullResult=await Tesseract.recognize(file,"eng",{logger:status});
+      fullRaw.push(fullResult.data.text||"");
+      const top=await cropTop(file);
+      const topResult=await Tesseract.recognize(top,"eng",{logger:status});
+      topRaw.push(topResult.data.text||"");
+    }
+    showOCRReview(fullRaw.join("\n"),topRaw.join("\n"),list.map(x=>x.name),mode);
+  }catch(e){
+    console.error(e);
+    openModal("Image import failed","<div class='notice'>VERA couldn't read those images reliably.</div><p class='muted'>Try clearer screenshots, or upload them again one at a time.</p><button class='full' onclick='editMeal()'>Enter item manually</button>");
+  }
+}
+function extractMacro(text,patterns){
+  for(const p of patterns){
+    const m=String(text).match(p);
+    if(m)return m[1];
+  }
+  return "";
+}
+function ingredientLinesFromOCR(text){
+  const lines=String(text||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  const start=lines.findIndex(x=>/^ingredients?$/i.test(x)||/^ingredients?\s*[:]/i.test(x));
+  if(start>=0){
+    const out=[];
+    for(let i=start+1;i<lines.length;i++){
+      if(/^steps?$/i.test(lines[i]))break;
+      if(lines[i].length>2&&!/^(recipe summary|carb breakdown|calories|protein|fat|carbs|fiber|net|starch|sugars|instructions for)$/i.test(lines[i]))out.push(lines[i]);
+    }
+    if(out.length)return out.slice(0,20);
+  }
+  return lines.filter(x=>x.length>2&&!/(recipe summary|carb breakdown|calories|protein|fat|carbs|fiber|net|starch|sugars|no target|instructions for)/i.test(x)).slice(-20);
+}
+function showOCRReview(fullRaw,topRaw,fileNames,mode){
+  const lines=String(fullRaw||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  const joined=lines.join(" ");
+  const nameLines=String(topRaw||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  let name=nameLines.find(x=>x.length>2&&!/(calories|energy|protein|carb|fat|serving|nutrition|kcal|kj)/i.test(x))||String(fileNames?.[0]||"").replace(/\.[^.]+$/,"");
+  name=name.replace(/\s+/g," ").trim();
+  const kcal=extractMacro(joined,[/(?:energy|calories)[^\d]{0,20}(\d{2,5})\s*(?:kcal)?/i,/([0-9]{2,5})\s*kcal/i]);
+  const p=extractMacro(joined,[/protein[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);
+  const c=extractMacro(joined,[/(?:carbohydrates?|carbs?)[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);
+  const f=extractMacro(joined,[/(?:total\s+)?fat[^\d]{0,15}(\d+(?:\.\d+)?)\s*g/i]);
+  const cat=mode==="label"||/drink|bar|snack|yoghurt|yogurt|chips|cracker|powerade|gatorade|protein/i.test(joined)?"Snacks":"Dinner";
+  const ingredientGuess=ingredientLinesFromOCR(fullRaw);
+  const imageCount=Array.isArray(fileNames)?fileNames.length:1;
+  const ingredientText=ingredientGuess.join("\n");
+  openModal("Review imported item","<div class='notice'><b>OCR combined "+imageCount+" image"+(imageCount===1?"":"s")+".</b><br>VERA reads the nutrition summary and ingredients separately, so multiple MacroFactor screenshots can belong to one recipe. Please verify the fields before saving.</div><div class='field'><label>Name<input id='ocrName' value='"+esc(name)+"'></label></div><div class='field'><label>Category<select id='ocrCat'>"+["Breakfast","Lunch","Snacks","Dinner","Dessert"].map(x=>"<option "+(x===cat?"selected":"")+">"+x+"</option>").join("")+"</select></label></div><div class='stats'><div class='field'><label>Calories<input id='ocrK' type='number' value='"+kcal+"'></label></div><div class='field'><label>Protein (g)<input id='ocrP' type='number' value='"+p+"'></label></div><div class='field'><label>Carbs (g)<input id='ocrC' type='number' value='"+c+"'></label></div><div class='field'><label>Fat (g)<input id='ocrF' type='number' value='"+f+"'></label></div></div><div class='field'><label>Shopping item / ingredients<textarea id='ocrI' rows='8'>"+esc(ingredientText||name)+"</textarea></label></div><details><summary>Show combined OCR text</summary><pre style='white-space:pre-wrap;font-size:11px;color:var(--muted)'>"+esc(fullRaw)+"</pre></details><button class='full' onclick='saveOCRRecipe()'>Save to VERA</button>");
+}
 function saveOCRRecipe(){const x={name:ocrName.value,category:ocrCat.value,calories:ocrK.value,protein:ocrP.value,carbs:ocrC.value,fat:ocrF.value,ingredients:[ocrI.value]};if(saveImportedRecipe(x)){save();closeModal();library();toast("Item saved ✓")}}function pickRecipeFile(){const input=document.createElement("input");input.type="file";input.accept=".json,.csv,.txt,.tsv,text/csv,application/json,text/plain";input.onchange=async()=>{const file=input.files[0];if(!file)return;const text=await file.text();let added=0;try{if(file.name.toLowerCase().endsWith(".json")){const data=JSON.parse(text);const arr=Array.isArray(data)?data:(data.recipes||data.data||[]);arr.forEach(x=>{if(saveImportedRecipe(x))added++})}else{const lines=text.replace(/\r/g,"").split("\n").filter(Boolean);if(lines.length>1){const head=parseCSVLine(lines[0]).map(x=>x.trim().toLowerCase());lines.slice(1).forEach(line=>{const vals=parseCSVLine(line),x={};head.forEach((h,i)=>x[h]=vals[i]||"");if(saveImportedRecipe(x))added++})}}}catch(e){console.error(e)}save();closeModal();library();toast(added+" recipes imported ✓")};input.click()}
 function parseCSVLine(line){const out=[];let cur="",q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==="\""&&line[i+1]==="\""){cur+="\"";i++;continue}if(ch==="\""){q=!q;continue}if((ch===","||ch==="\\t")&&!q){out.push(cur);cur="";continue}cur+=ch}out.push(cur);return out}
 function normNum(v){const n=parseFloat(String(v||"").replace(/[^0-9.-]/g,""));return Number.isFinite(n)?n:0}
