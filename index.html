@@ -91,9 +91,9 @@ function pickRecipeImagesStage1(){const input=document.createElement("input");in
 async function runMultiRecipeOCR(files){files=Array.from(files||[]);if(!files.length)return;openModal("Reading screenshots","<div class='notice'><b>Step 1 of "+files.length+"</b><br>VERA is reading each screenshot separately. Nothing is saved automatically.</div><p id='ocrMultiStatus' class='muted'>Starting OCR…</p>");let texts=[];try{if(!window.Tesseract)throw new Error("OCR library did not load");for(let i=0;i<files.length;i++){const el=document.getElementById("ocrMultiStatus");if(el)el.textContent="Reading screenshot "+(i+1)+" of "+files.length+"…";const result=await Tesseract.recognize(files[i],"eng",{logger:m=>{const el=document.getElementById("ocrMultiStatus");if(el&&m.status)el.textContent="Screenshot "+(i+1)+" of "+files.length+" — "+m.status+(m.progress?" "+Math.round(m.progress*100)+"%":"")}});texts.push(result.data.text||"")}showOCRReview(texts.join("\n\n"),files.map(f=>f.name).join(" + "));window._veraRecipeFiles=[]}catch(e){console.error(e);openModal("OCR could not finish","<div class='notice'>VERA couldn't read all of the selected screenshots. Your images were not saved. Please try 1–2 screenshots at a time, or use Paste recipe details instead.</div><button class='full ghost' onclick='closeModal()'>Close</button>")}}
 async function pickRecipeImage(){const input=document.createElement("input");input.type="file";input.accept="image/*";input.onchange=async()=>{const file=input.files[0];if(!file)return;openModal("Scanning image","<div class='notice'>VERA is reading the image.</div><p id='ocrStatus' class='muted'>Starting OCR…</p><img id='ocrPreview' style='width:100%;max-height:280px;object-fit:contain;border-radius:14px;margin-top:10px'>");const img=document.getElementById("ocrPreview");img.src=URL.createObjectURL(file);try{if(!window.Tesseract)throw new Error("OCR library did not load");const result=await Tesseract.recognize(file,"eng",{logger:m=>{const el=document.getElementById("ocrStatus");if(el)el.textContent=(m.status||"Reading")+" "+(m.progress?Math.round(m.progress*100)+"%":"")}});showOCRReview(result.data.text||"",file.name)}catch(e){console.error(e);toast("Could not read image automatically")}};input.click()}
 function showOCRReview(raw,fileName){
-const text=String(raw||"").replace(/\\r/g,"\\n");
-const lines=text.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
-const joined=lines.join(" ").replace(/\\s+/g," ");
+const text=String(raw||"").replace(/\r/g,"\n");
+const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+const joined=lines.join(" ").replace(/\s+/g," ");
 function first(re){const m=joined.match(re);return m&&m[1]?m[1]:""}
 function macroValue(label){
   let v=first(new RegExp(label+"[^0-9]{0,35}(\\d+(?:[.,]\\d+)?)\\s*g\\s*(?:/|per)?\\s*serv","i"));
@@ -102,19 +102,16 @@ function macroValue(label){
   if(v)return v.replace(",",".");
   return "";
 }
-let kcal=first(/(?:calories|energy)[^0-9]{0,25}(\\d{2,4})\\s*k?cal/i);
-if(!kcal)kcal=first(/(\\d{2,4})\\s*kcal\\s*\\/?\\s*serv/i);
+let kcal=first(/(?:calories|energy)[^0-9]{0,25}(\d{2,4})\s*k?cal/i);
+if(!kcal)kcal=first(/(\d{2,4})\s*kcal\s*\/?\s*serv/i);
 let p=macroValue("protein"), c=macroValue("carb(?:ohydrate)?s?"), f=macroValue("fat");
-// MacroFactor sometimes OCRs 49.8 as 498 when the decimal is faint. The
-// percentage/target pair lets us recover the decimal reliably (498/180 ≈ 28%).
-const carbPair=joined.match(/carb(?:ohydrate)?s?[^0-9]{0,20}(\\d{2,4})\\s*\\/\\s*(\\d{2,4})\\s*g[^0-9]{0,10}(\\d{1,3})%/i);
-if(carbPair&&(!c||!/[.]/.test(c))){const rawC=carbPair[1],targetC=+carbPair[2],pct=+carbPair[3],n=+rawC;if(targetC&&pct&&n>targetC&&Math.abs((n/targetC*100)-pct)<3)c=(n/10).toFixed(1);}
-// Ignore the iPhone status-bar time and OCR garbage when choosing the name.
-const cleanLines=lines.filter(x=>!/^\\d{1,2}:\\d{2}(?:\\s*[|\\\\].*)?$/.test(x)&&!/^(?:wifi|lte|5g|ft)\\b/i.test(x)&&!/^\\d+[\\s|\\\\-]*$/.test(x));
-let name=cleanLines.find(x=>!/(calories|energy|protein|fat|carb|fiber|net|starch|nutrition|serving|target|%)/i.test(x)&&x.length>1)||fileName.replace(/\\.[^.]+$/,"");
+const carbPair=joined.match(/carb(?:ohydrate)?s?[^0-9]{0,20}(\d{2,4})\s*\/\s*(\d{2,4})\s*g[^0-9]{0,10}(\d{1,3})%/i);
+if(carbPair&&(!c||!/[\.,]/.test(c))){const rawC=carbPair[1],targetC=+carbPair[2],pct=+carbPair[3],n=+rawC;if(targetC&&pct&&n>targetC&&Math.abs((n/targetC*100)-pct)<3)c=(n/10).toFixed(1);}
+const cleanLines=lines.filter(x=>!(/^\d{1,2}:\d{2}(?:\s*[|\\].*)?$/.test(x))&&!/^(?:wifi|lte|5g|ft)\b/i.test(x)&&!/^\d+[\s|\\-]*$/.test(x));
+let name=cleanLines.find(x=>!/(calories|energy|protein|fat|carb|fiber|net|starch|nutrition|serving|target|%)/i.test(x)&&x.length>1)||fileName.replace(/\.[^.]+$/,"");
 const cat=/drink|bar|snack|yoghurt|yogurt|chips|cracker|powerade|gatorade|protein/i.test(joined)?"Snacks":"Dinner";
-const ingredientLines=lines.filter(x=>/(?:by |\\b(?:g|kg|ml|l)\\b|\\d+\\s*(?:slice|serving|piece|egg|tbsp|tsp))/i.test(x)&&!/calories|protein|fat|carb|fiber|net|starch|target/i.test(x));
-const ingredientGuess=ingredientLines.length?ingredientLines.join("\\n"):cleanLines.slice(1).join("\\n");
+const ingredientLines=lines.filter(x=>/(?:by |\b(?:g|kg|ml|l)\b|\d+\s*(?:slice|serving|piece|egg|tbsp|tsp))/i.test(x)&&!/(calories|protein|fat|carb|fiber|net|starch|target)/i.test(x));
+const ingredientGuess=ingredientLines.length?ingredientLines.join("\n"):cleanLines.slice(1).join("\n");
 openModal("Review scanned item","<div class='notice'><b>OCR result — check it before saving.</b><br>VERA now prioritises the <b>per-serving</b> MacroFactor values and ignores the iPhone status bar. Check the values before saving.</div><div class='field'><label>Name<input id='ocrName' value='"+esc(name)+"'></label></div><div class='field'><label>Category<select id='ocrCat'>"+["Breakfast","Lunch","Snacks","Dinner","Dessert"].map(x=>"<option "+(x===cat?"selected":"")+">"+x+"</option>").join("")+"</select></label></div><div class='stats'><div class='field'><label>Calories<input id='ocrK' type='number' value='"+kcal+"'></label></div><div class='field'><label>Protein (g)<input id='ocrP' type='number' value='"+p+"'></label></div><div class='field'><label>Carbs (g)<input id='ocrC' type='number' value='"+c+"'></label></div><div class='field'><label>Fat (g)<input id='ocrF' type='number' value='"+f+"'></label></div></div><div class='field'><label>Shopping item / ingredients<textarea id='ocrI' rows='5'>"+esc(ingredientGuess||name)+"</textarea></label></div><button class='full' onclick='saveOCRRecipe()'>Save to VERA</button>")}
 function saveOCRRecipe(){const x={name:ocrName.value,category:ocrCat.value,calories:ocrK.value,protein:ocrP.value,carbs:ocrC.value,fat:ocrF.value,ingredients:[ocrI.value]};if(saveImportedRecipe(x)){save();closeModal();library();toast("Item saved ✓")}}function pickRecipeFile(){const input=document.createElement("input");input.type="file";input.accept=".json,.csv,.txt,.tsv,text/csv,application/json,text/plain";input.onchange=async()=>{const file=input.files[0];if(!file)return;const text=await file.text();let added=0;try{if(file.name.toLowerCase().endsWith(".json")){const data=JSON.parse(text);const arr=Array.isArray(data)?data:(data.recipes||data.data||[]);arr.forEach(x=>{if(saveImportedRecipe(x))added++})}else{const lines=text.replace(/\r/g,"").split("\n").filter(Boolean);if(lines.length>1){const head=parseCSVLine(lines[0]).map(x=>x.trim().toLowerCase());lines.slice(1).forEach(line=>{const vals=parseCSVLine(line),x={};head.forEach((h,i)=>x[h]=vals[i]||"");if(saveImportedRecipe(x))added++})}}}catch(e){console.error(e)}save();closeModal();library();toast(added+" recipes imported ✓")};input.click()}
 function parseCSVLine(line){const out=[];let cur="",q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==="\""&&line[i+1]==="\""){cur+="\"";i++;continue}if(ch==="\""){q=!q;continue}if((ch===","||ch==="\\t")&&!q){out.push(cur);cur="";continue}cur+=ch}out.push(cur);return out}
